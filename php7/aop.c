@@ -28,6 +28,7 @@
 #include "ext/pcre/php_pcre.h"
 
 #include "php_aop.h"
+#include "aop_joinpoint.h"
 #include "lexer.h"
 
 static int le_aop;
@@ -158,6 +159,10 @@ static void free_pointcut(zval *elem)
 		return;
 	}
 
+	if (&(pc->fci.function_name)) {
+		zval_ptr_dtor(&pc->fci.function_name);
+	}
+
 	if (pc->method != NULL) {
 		zend_string_release(pc->method);
 	}
@@ -279,6 +284,29 @@ PHP_MINIT_FUNCTION(aop)
 	original_zend_execute_internal = zend_execute_internal;
 	zend_execute_internal = aop_execute_internal;
 
+	register_class_AopJoinPoint();
+
+	REGISTER_LONG_CONSTANT("AOP_KIND_BEFORE", AOP_KIND_BEFORE, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AFTER", AOP_KIND_AFTER, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AROUND", AOP_KIND_AROUND, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_PROPERTY", AOP_KIND_PROPERTY, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_FUNCTION", AOP_KIND_FUNCTION, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_METHOD", AOP_KIND_METHOD, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_READ", AOP_KIND_READ, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_WRITE", AOP_KIND_WRITE, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AROUND_WRITE_PROPERTY", AOP_KIND_AROUND_WRITE_PROPERTY, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AROUND_READ_PROPERTY", AOP_KIND_AROUND_READ_PROPERTY, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_BEFORE_WRITE_PROPERTY", AOP_KIND_BEFORE_WRITE_PROPERTY, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_BEFORE_READ_PROPERTY", AOP_KIND_BEFORE_READ_PROPERTY, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AFTER_WRITE_PROPERTY", AOP_KIND_AFTER_WRITE_PROPERTY, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AFTER_READ_PROPERTY", AOP_KIND_AFTER_READ_PROPERTY, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_BEFORE_METHOD", AOP_KIND_BEFORE_METHOD, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AFTER_METHOD", AOP_KIND_AFTER_METHOD, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AROUND_METHOD", AOP_KIND_AROUND_METHOD, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_BEFORE_FUNCTION", AOP_KIND_BEFORE_FUNCTION, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AFTER_FUNCTION", AOP_KIND_AFTER_FUNCTION, CONST_CS | CONST_PERSISTENT);
+    REGISTER_LONG_CONSTANT("AOP_KIND_AROUND_FUNCTION", AOP_KIND_AROUND_FUNCTION, CONST_CS | CONST_PERSISTENT);
+
     return SUCCESS;
 }
 /* }}} */
@@ -321,6 +349,26 @@ PHP_RSHUTDOWN_FUNCTION(aop)
 {
 	zend_array_destroy(AOP_G(pointcuts_table));
 	zend_array_destroy(AOP_G(function_cache));
+	
+	int i;
+    for (i = 0; i < AOP_G(object_cache_size); i++) {
+        if (AOP_G(object_cache)[i] != NULL) {
+			object_cache *_cache = AOP_G(object_cache)[i];
+			if (_cache->write!=NULL) {
+				zend_hash_destroy(_cache->write);
+				FREE_HASHTABLE(_cache->write);
+			}
+			if (_cache->read!=NULL) {
+				zend_hash_destroy(_cache->read);
+				FREE_HASHTABLE(_cache->read);
+			}
+			if (_cache->func!=NULL) {
+				zend_hash_destroy(_cache->func);
+				FREE_HASHTABLE(_cache->func);
+			}
+			efree(_cache);
+		}
+	}
 	efree(AOP_G(object_cache));
 
     return SUCCESS;
@@ -355,6 +403,9 @@ PHP_FUNCTION(aop_add_before)
 		Z_PARAM_FUNC(fci, fci_cache)
 	ZEND_PARSE_PARAMETERS_END();
 
+	if (&(fci.function_name)) {
+		Z_TRY_ADDREF(fci.function_name);
+	}
 	add_pointcut(fci, fci_cache, selector, AOP_KIND_BEFORE);
 }
 /*}}}*/
@@ -373,6 +424,9 @@ PHP_FUNCTION(aop_add_around)
 		Z_PARAM_FUNC(fci, fci_cache)
 	ZEND_PARSE_PARAMETERS_END();
 
+	if (&(fci.function_name)) {
+		Z_TRY_ADDREF(fci.function_name);
+	}
 	add_pointcut(fci, fci_cache, selector, AOP_KIND_AROUND);
 }
 /*}}}*/
@@ -391,6 +445,9 @@ PHP_FUNCTION(aop_add_after)
 		Z_PARAM_FUNC(fci, fci_cache)
 	ZEND_PARSE_PARAMETERS_END();
 
+	if (&(fci.function_name)) {
+		Z_TRY_ADDREF(fci.function_name);
+	}
 	add_pointcut(fci, fci_cache, selector, AOP_KIND_AFTER | AOP_KIND_CATCH | AOP_KIND_RETURN);
 }
 /*}}}*/
@@ -409,6 +466,9 @@ PHP_FUNCTION(aop_add_after_returning)
 		Z_PARAM_FUNC(fci, fci_cache)
 	ZEND_PARSE_PARAMETERS_END();
 
+	if (&(fci.function_name)) {
+		Z_TRY_ADDREF(fci.function_name);
+	}
 	add_pointcut(fci, fci_cache, selector, AOP_KIND_AFTER | AOP_KIND_RETURN);
 }
 /*}}}*/
@@ -427,6 +487,9 @@ PHP_FUNCTION(aop_add_after_throwing)
 		Z_PARAM_FUNC(fci, fci_cache)
 	ZEND_PARSE_PARAMETERS_END();
 
+	if (&(fci.function_name)) {
+		Z_TRY_ADDREF(fci.function_name);
+	}
 	add_pointcut(fci, fci_cache, selector, AOP_KIND_AFTER | AOP_KIND_CATCH);
 }
 /*}}}*/

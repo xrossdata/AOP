@@ -26,6 +26,7 @@
 #include "ext/pcre/php_pcre.h"
 
 #include "php_aop.h"
+#include "aop_joinpoint.h"
 
 static int pointcut_match_zend_class_entry(pointcut *pc, zend_class_entry *ce) /*{{{*/
 {
@@ -257,16 +258,107 @@ static zend_array *get_cache_func(zend_execute_data *ex) /*{{{*/
 }
 /*}}}*/
 
-static void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_data *ex) 
+static void execute_pointcut(pointcut *pc, zval *arg, zend_execute_data *call, zval *retval)
+{
+    zval params[1];
+
+    if (EG(current_execute_data) == call){
+        //dely to execute call function, execute pointcut first
+        EG(current_execute_data) = call->prev_execute_data;
+    }
+
+    ZVAL_COPY_VALUE(&params[0], arg);
+
+    pc->fci.retval = retval;
+    pc->fci.param_count = 1;
+    pc->fci.params = params;
+
+    if (zend_call_function(&pc->fci, &pc->fci_cache) == FAILURE) {
+        zend_error(E_ERROR, "Problem in AOP Callback");
+    }
+
+    if (EG(current_execute_data) == call->prev_execute_data){
+        //EG(current_execute_data) = call;
+    }
+}
+
+static void execute_context(zend_execute_data *ex, int args_overloaded, zval *args)
+{
+    zend_class_entry *current_scope = NULL;
+
+    if (EG(exception)) {
+        return ;
+    }
+
+    if (EG(scope) != ex->called_scope) {
+        current_scope = EG(scope);
+        EG(scope) = ex->called_scope;
+    }
+
+    //overload arguments
+    if (args_overloaded) {
+        uint32_t i, max_num_args, num_args = 0;
+        zend_ulong args_index;
+        zval *original_args_value;
+        zval *overload_args_value;
+
+        max_num_args = ex->func->common.num_args;
+
+        ZEND_HASH_FOREACH_NUM_KEY_VAL(Z_ARR_P(args), args_index, overload_args_value) {
+            if (args_index > max_num_args - 1) {
+                zval_ptr_dtor(overload_args_value);
+                continue;
+            }
+            original_args_value = ZEND_CALL_VAR_NUM(ex, args_index);
+            Z_TRY_DELREF_P(original_args_value);
+
+            ZVAL_COPY(original_args_value, overload_args_value);
+            num_args++;
+        } ZEND_HASH_FOREACH_END(); 
+        
+        ZEND_CALL_NUM_ARGS(ex) = num_args;
+    }
+    
+    EG(current_execute_data) = ex;
+
+    if (ex->func->common.type == ZEND_USER_FUNCTION) {
+        original_zend_execute_ex(ex);
+    } else if (ex->func->common.type == ZEND_INTERNAL_FUNCTION) {
+        //zval return_value;
+        if (original_zend_execute_internal) {
+            original_zend_execute_internal(ex, ex->return_value);
+        }else{
+            execute_internal(ex, ex->return_value);
+        }
+    } else { /* ZEND_OVERLOADED_FUNCTION */
+        //TODO:
+    }
+
+    if (current_scope != NULL) {
+        EG(scope) = current_scope;
+    }
+
+    if (args_overloaded) {
+        zval_ptr_dtor(args);
+    }
+}
+
+void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_data *ex, int args_overloaded, zval *args) 
 {
     pointcut *current_pc = NULL;
     zval *current_pc_value = NULL;
+    zval aop_object;
+    AopJoinpoint_object *joinpoint;
+    zend_object *exception = NULL;
+    zval pointcut_ret;
 
     if (pointcut_table == NULL) {
         //find pointcut of current call function
         pointcut_table = get_cache_func (ex);
         if (pointcut_table == NULL) {
-            original_zend_execute_ex(ex);
+            AOP_G(overloaded) = 0;
+            execute_context(ex, args_overloaded, args);
+            AOP_G(overloaded) = 1;
             return;
         }
         zend_hash_internal_pointer_reset_ex(pointcut_table, &pos);
@@ -276,13 +368,88 @@ static void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_tab
 
     current_pc_value = zend_hash_get_current_data_ex(pointcut_table, &pos);
     if (current_pc_value == NULL) {
-        original_zend_execute_ex(ex);
+        AOP_G(overloaded) = 0;
+        execute_context(ex, args_overloaded, args);
+        AOP_G(overloaded) = 1;
         return;
     }
     current_pc = (pointcut *)Z_PTR_P(current_pc_value);
     
     //TODO:make JoinPoint object
-    //...
+    object_init_ex(&aop_object, aop_joinpoint_ce);
+    joinpoint = (AopJoinpoint_object *)(Z_OBJ(aop_object));
+    joinpoint->ex = ex;
+    joinpoint->current_pointcut = current_pc;
+    joinpoint->pos = pos;
+    joinpoint->advice = pointcut_table;
+    joinpoint->kind_of_advice = current_pc->kind_of_advice;
+    joinpoint->exception = NULL;
+
+    if (args_overloaded) {
+        Z_TRY_ADDREF_P(args);
+        joinpoint->args = args;
+    }
+    joinpoint->args_overloaded = args_overloaded;
+
+    if (current_pc->kind_of_advice & AOP_KIND_BEFORE) {
+        if (!EG(exception)) {
+            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            if (&pointcut_ret != NULL) {
+                zval_ptr_dtor(&pointcut_ret);
+            }
+        }
+    }
+    if (current_pc->kind_of_advice & AOP_KIND_AROUND) {
+        if (!EG(exception)) {
+            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
+                if (ex->return_value != NULL) {
+                    zval_ptr_dtor(ex->return_value);
+                    ZVAL_COPY_VALUE(ex->return_value, &pointcut_ret);
+                } else {
+                    zval_ptr_dtor(&pointcut_ret);
+                }
+            }
+        }
+    } else {
+        func_pointcut_and_execute(pos, pointcut_table, ex, joinpoint->args_overloaded, joinpoint->args);
+    }
+    //AOP_KIND_AFTER
+    if (current_pc->kind_of_advice & AOP_KIND_AFTER) {
+        if (current_pc->kind_of_advice & AOP_KIND_CATCH && EG(exception)) {
+            exception = EG(exception);
+            joinpoint->exception = exception;
+            EG(exception) = NULL;
+            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            EG(exception) = exception;
+
+            if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
+                if (ex->return_value != NULL) {
+                    zval_ptr_dtor(ex->return_value);
+                    ZVAL_COPY_VALUE(ex->return_value, &pointcut_ret);
+                } else {
+                    zval_ptr_dtor(&pointcut_ret);
+                }
+            }
+
+        } else if (current_pc->kind_of_advice & AOP_KIND_RETURN && !EG(exception)) {
+            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            
+            if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
+                if (ex->return_value != NULL) {
+                    zval_ptr_dtor(ex->return_value);
+                    ZVAL_COPY_VALUE(ex->return_value, &pointcut_ret);
+                } else {
+                    zval_ptr_dtor(&pointcut_ret);
+                }
+            }
+
+        }
+    }
+
+    //Z_DELREF(aop_object);
+    zval_ptr_dtor(&aop_object);
+    return;
 }
 
 //execute_ex overload
@@ -294,27 +461,22 @@ ZEND_API void aop_execute_ex(zend_execute_data *ex)
     fbc = ex->func;
 
     if (!AOP_G(aop_enable) || fbc == NULL || AOP_G(overloaded) || EG(exception) || fbc->common.function_name == NULL || fbc->common.type == ZEND_EVAL_CODE || fbc->common.fn_flags & ZEND_ACC_CLOSURE) {
-        printf("use zend execute\n");
 	    return original_zend_execute_ex(ex);
     }
 
-    printf("hook execute function:%s type:%d\n", ZSTR_VAL(fbc->common.function_name), fbc->common.type);
-    
     AOP_G(overloaded) = 1;
-    func_pointcut_and_execute(pos, NULL, ex);
+    func_pointcut_and_execute(pos, NULL, ex, 0, NULL);
     AOP_G(overloaded) = 0;
 }
 
 ZEND_API void aop_execute_internal(zend_execute_data *ex, zval *return_value)
 {
-            return execute_internal(ex, return_value);
     zend_function *fbc = NULL;
     HashPosition pos = 0;
     
     fbc = ex->func;
 
     if (!AOP_G(aop_enable) || fbc == NULL || AOP_G(overloaded) || EG(exception) || fbc->common.function_name == NULL) {
-        printf("use zend execute internal function:%s type:%d\n", ZSTR_VAL(fbc->common.function_name), fbc->common.type);
         if (original_zend_execute_internal) {
             return original_zend_execute_internal(ex, return_value);
         }else{
@@ -322,10 +484,10 @@ ZEND_API void aop_execute_internal(zend_execute_data *ex, zval *return_value)
         }
     }
 
-    printf("hook execute internal function:%s type:%d\n", ZSTR_VAL(fbc->common.function_name), fbc->common.type);
+    ex->return_value = return_value;
 
     AOP_G(overloaded) = 1;
-    func_pointcut_and_execute(pos, NULL, ex);
+    func_pointcut_and_execute(pos, NULL, ex, 0, NULL);
     AOP_G(overloaded) = 0;
 }
 

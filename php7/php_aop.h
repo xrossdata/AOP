@@ -52,6 +52,20 @@ extern zend_module_entry aop_module_entry;
 #define AOP_KIND_CATCH		256
 #define AOP_KIND_RETURN		512
 
+#define AOP_KIND_AROUND_READ_PROPERTY (AOP_KIND_AROUND+AOP_KIND_READ+AOP_KIND_PROPERTY)
+#define AOP_KIND_AROUND_WRITE_PROPERTY (AOP_KIND_AROUND+AOP_KIND_WRITE+AOP_KIND_PROPERTY)
+#define AOP_KIND_BEFORE_READ_PROPERTY (AOP_KIND_BEFORE+AOP_KIND_READ+AOP_KIND_PROPERTY)
+#define AOP_KIND_BEFORE_WRITE_PROPERTY (AOP_KIND_BEFORE+AOP_KIND_WRITE+AOP_KIND_PROPERTY)
+#define AOP_KIND_AFTER_READ_PROPERTY (AOP_KIND_AFTER+AOP_KIND_READ+AOP_KIND_PROPERTY)
+#define AOP_KIND_AFTER_WRITE_PROPERTY (AOP_KIND_AFTER+AOP_KIND_WRITE+AOP_KIND_PROPERTY)
+
+#define AOP_KIND_AROUND_METHOD (AOP_KIND_AROUND+AOP_KIND_METHOD)
+#define AOP_KIND_AROUND_FUNCTION (AOP_KIND_AROUND+AOP_KIND_FUNCTION)
+#define AOP_KIND_BEFORE_METHOD (AOP_KIND_BEFORE+AOP_KIND_METHOD)
+#define AOP_KIND_BEFORE_FUNCTION (AOP_KIND_BEFORE+AOP_KIND_FUNCTION)
+#define AOP_KIND_AFTER_METHOD (AOP_KIND_AFTER+AOP_KIND_METHOD)
+#define AOP_KIND_AFTER_FUNCTION (AOP_KIND_AFTER+AOP_KIND_FUNCTION)
+
 typedef struct {
 	int scope;
 	int static_state;
@@ -100,6 +114,8 @@ ZEND_API void (*original_zend_execute_internal)(zend_execute_data *execute_data,
 
 ZEND_API void aop_execute_ex(zend_execute_data *execute_data);
 ZEND_API void aop_execute_internal(zend_execute_data *execute_data, zval *return_value);
+
+void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_data *ex, int args_overloaded, zval *args);
 
 
 void free_pointcut_cache(zval *elem);
