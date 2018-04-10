@@ -28,6 +28,36 @@
 #include "php_aop.h"
 #include "aop_joinpoint.h"
 
+static int strcmp_with_joker_case(char *str_with_jok, char *str, int case_sensitive) /*{{{*/
+{
+    int joker = 0;
+    if (str_with_jok[0] == '*') {
+        if (str_with_jok[1] == '\0') {
+            return 1;
+        }
+    }
+    if (str_with_jok[0] == '*') {
+        if (case_sensitive) {
+            return !strcmp(str_with_jok+1, str+(strlen(str)-(strlen(str_with_jok)-1)));
+        } else {
+            return !strcasecmp(str_with_jok+1, str+(strlen(str)-(strlen(str_with_jok)-1)));
+        }
+    }
+    if (str_with_jok[strlen(str_with_jok)-1] == '*') {
+        if (case_sensitive) {
+            return !strncmp(str_with_jok, str, strlen(str_with_jok)-1);
+        } else {
+            return !strncasecmp(str_with_jok, str, strlen(str_with_jok)-1);
+        }
+    }
+    if (case_sensitive) {
+        return !strcmp(str_with_jok, str);
+    } else {
+        return !strcasecmp(str_with_jok, str);
+    }
+}
+/*}}}*/
+
 static int pointcut_match_zend_class_entry(pointcut *pc, zend_class_entry *ce) /*{{{*/
 {
     int i, matches;
@@ -165,6 +195,69 @@ static zend_array *calculate_function_pointcuts(zend_execute_data *ex) /*{{{*/
 }
 /*}}}*/
 
+static int test_property_scope(pointcut *current_pc, zend_class_entry *ce, zval *member) /*{{{*/
+{
+    zval *property_info_val;
+    zend_property_info *property_info = NULL;
+    
+    property_info_val = zend_hash_find(&ce->properties_info, Z_STR_P(member));
+    if (property_info_val) {
+        property_info = (zend_property_info *)Z_PTR_P(property_info_val);
+        if (current_pc->static_state != 2) {
+            if (current_pc->static_state) {
+                if (!(property_info->flags & ZEND_ACC_STATIC)) {
+                    return 0;
+                }
+            } else {
+                if ((property_info->flags & ZEND_ACC_STATIC)) {
+                    return 0;
+                }
+            }
+        }       
+        if (current_pc->scope != 0 && !(current_pc->scope & (property_info->flags & ZEND_ACC_PPP_MASK))) {
+            return 0;
+        }
+    } else {
+        if (current_pc->scope != 0 && !(current_pc->scope & ZEND_ACC_PUBLIC)) {
+            return 0;
+        }
+        if (current_pc->static_state == 1) {
+            return 0;
+        }
+    }
+    return 1;
+}
+/*}}}*/
+
+static zend_array *calculate_property_pointcuts(zval *object, zval *member, int kind)
+{
+    zend_array *class_pointcuts;
+    zval *pc_value;
+    pointcut *pc;
+    zend_ulong h;
+
+    class_pointcuts = calculate_class_pointcuts(Z_OBJCE_P(object), kind);
+   
+    ZEND_HASH_FOREACH_NUM_KEY_VAL(class_pointcuts, h, pc_value) {
+        pc = (pointcut *)Z_PTR_P(pc_value);
+        if (ZSTR_VAL(pc->method)[0] != '*') {
+            if (!strcmp_with_joker_case(ZSTR_VAL(pc->method), ZSTR_VAL(Z_STR_P(member)), 1)) {
+                zend_hash_index_del(class_pointcuts, h);
+                continue;
+            }
+        }
+        //Scope
+        if (pc->static_state != 2 || pc->scope != 0) {
+            if (!test_property_scope(pc, Z_OBJCE_P(object), member)) {
+                zend_hash_index_del(class_pointcuts, h);
+                continue;
+            }
+        }
+    } ZEND_HASH_FOREACH_END(); 
+
+    return class_pointcuts;
+}
+
 object_cache *get_object_cache (zend_object *object) /*{{{*/
 {
     int i;
@@ -188,6 +281,7 @@ object_cache *get_object_cache (zend_object *object) /*{{{*/
 }
 /*}}}*/
 
+/*{{{ get_object_cache_func/read/write*/
 zend_array *get_object_cache_func(zend_object *object)
 {
     object_cache *cache;
@@ -196,8 +290,31 @@ zend_array *get_object_cache_func(zend_object *object)
         ALLOC_HASHTABLE(cache->func);
         zend_hash_init(cache->func, 16, NULL, free_pointcut_cache , 0);
     }
-    return cache->func;;
+    return cache->func;
 }
+
+zend_array *get_object_cache_read(zend_object *object)
+{
+    object_cache *cache;
+    cache = get_object_cache(object);
+    if (cache->read == NULL) {
+        ALLOC_HASHTABLE(cache->read);
+        zend_hash_init(cache->read, 16, NULL, free_pointcut_cache, 0);
+    }
+    return cache->read;
+}
+
+zend_array *get_object_cache_write(zend_object *object)
+{
+    object_cache *cache;
+    cache = get_object_cache(object);
+    if (cache->write == NULL) {
+        ALLOC_HASHTABLE(cache->write);
+        zend_hash_init(cache->write, 16, NULL, free_pointcut_cache , 0);
+    }
+    return cache->write;
+}
+/*}}}*/
 
 static zend_array *get_cache_func(zend_execute_data *ex) /*{{{*/
 {
@@ -258,15 +375,46 @@ static zend_array *get_cache_func(zend_execute_data *ex) /*{{{*/
 }
 /*}}}*/
 
-static void execute_pointcut(pointcut *pc, zval *arg, zend_execute_data *call, zval *retval)
+static zend_array *get_cache_property(zval *object, zval *member, int type) /*{{{*/
+{
+    zend_array *ht_object_cache = NULL;
+    zval *cache = NULL;
+    pointcut_cache *_pointcut_cache = NULL;
+    zval pointcut_cache_value;
+
+    if (type & AOP_KIND_READ) {
+        ht_object_cache = get_object_cache_read(Z_OBJ_P(object));
+    } else {
+        ht_object_cache = get_object_cache_write(Z_OBJ_P(object));
+    }
+    
+    cache = zend_hash_find(ht_object_cache, Z_STR_P(member));
+
+    if (cache != NULL) {
+        _pointcut_cache = (pointcut_cache *)Z_PTR_P(cache);
+        if (_pointcut_cache->version != AOP_G(pointcut_version) || _pointcut_cache->ce != Z_OBJCE_P(object)) {
+            //cache lost
+            _pointcut_cache = NULL;
+            zend_hash_del(ht_object_cache, Z_STR_P(member));
+        }
+    }
+    if (_pointcut_cache == NULL) {
+        _pointcut_cache = (pointcut_cache *)emalloc(sizeof(pointcut_cache));
+        _pointcut_cache->ht = calculate_property_pointcuts(object, member, type);
+        _pointcut_cache->version = AOP_G(pointcut_version);
+        _pointcut_cache->ce = Z_OBJCE_P(object);
+
+        ZVAL_PTR(&pointcut_cache_value, _pointcut_cache);
+        zend_hash_add(ht_object_cache, Z_STR_P(member), &pointcut_cache_value);
+    }
+    return _pointcut_cache->ht;
+}
+/*}}}*/
+
+static void execute_pointcut(pointcut *pc, zval *arg, zval *retval) /*{{{*/
 {
     zval params[1];
-
-    if (EG(current_execute_data) == call){
-        //dely to execute call function, execute pointcut first
-        EG(current_execute_data) = call->prev_execute_data;
-    }
-
+    
     ZVAL_COPY_VALUE(&params[0], arg);
 
     pc->fci.retval = retval;
@@ -276,13 +424,10 @@ static void execute_pointcut(pointcut *pc, zval *arg, zend_execute_data *call, z
     if (zend_call_function(&pc->fci, &pc->fci_cache) == FAILURE) {
         zend_error(E_ERROR, "Problem in AOP Callback");
     }
-
-    if (EG(current_execute_data) == call->prev_execute_data){
-        //EG(current_execute_data) = call;
-    }
 }
+/*}}}*/
 
-static void execute_context(zend_execute_data *ex, int args_overloaded, zval *args)
+static void execute_context(zend_execute_data *ex, zval *args) /*{{{*/
 {
     zend_class_entry *current_scope = NULL;
 
@@ -290,13 +435,8 @@ static void execute_context(zend_execute_data *ex, int args_overloaded, zval *ar
         return ;
     }
 
-    if (EG(scope) != ex->called_scope) {
-        current_scope = EG(scope);
-        EG(scope) = ex->called_scope;
-    }
-
     //overload arguments
-    if (args_overloaded) {
+    if (args != NULL) {
         uint32_t i, max_num_args, num_args = 0;
         zend_ulong args_index;
         zval *original_args_value;
@@ -333,67 +473,54 @@ static void execute_context(zend_execute_data *ex, int args_overloaded, zval *ar
     } else { /* ZEND_OVERLOADED_FUNCTION */
         //TODO:
     }
-
-    if (current_scope != NULL) {
-        EG(scope) = current_scope;
-    }
-
-    if (args_overloaded) {
-        zval_ptr_dtor(args);
-    }
 }
+/*}}}*/
 
-void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_data *ex, int args_overloaded, zval *args) 
+void do_func_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_data *ex, zval *aop_object) /*{{{*/
 {
     pointcut *current_pc = NULL;
     zval *current_pc_value = NULL;
-    zval aop_object;
-    AopJoinpoint_object *joinpoint;
-    zend_object *exception = NULL;
     zval pointcut_ret;
+    zend_object *exception = NULL;
+    zend_class_entry *current_scope = NULL;
+    AopJoinpoint_object *joinpoint = (AopJoinpoint_object *)Z_OBJ_P(aop_object);
 
-    if (pointcut_table == NULL) {
-        //find pointcut of current call function
-        pointcut_table = get_cache_func (ex);
-        if (pointcut_table == NULL) {
-            AOP_G(overloaded) = 0;
-            execute_context(ex, args_overloaded, args);
-            AOP_G(overloaded) = 1;
-            return;
+    while(1){
+        current_pc_value = zend_hash_get_current_data_ex(pointcut_table, &pos);
+        if (current_pc_value == NULL || Z_TYPE_P(current_pc_value) != IS_UNDEF) {
+            break;
+        } else {
+            zend_hash_move_forward_ex(pointcut_table, &pos);
         }
-        zend_hash_internal_pointer_reset_ex(pointcut_table, &pos);
-    } else {
-        zend_hash_move_forward_ex(pointcut_table, &pos);
     }
 
-    current_pc_value = zend_hash_get_current_data_ex(pointcut_table, &pos);
     if (current_pc_value == NULL) {
+        if (EG(scope) != ex->called_scope) {
+            current_scope = EG(scope);
+            EG(scope) = ex->called_scope;
+        }
+
         AOP_G(overloaded) = 0;
-        execute_context(ex, args_overloaded, args);
+        execute_context(ex, joinpoint->args);
         AOP_G(overloaded) = 1;
+
+        if (current_scope != NULL) {
+            EG(scope) = current_scope;
+        }
+
         return;
     }
+    zend_hash_move_forward_ex(pointcut_table, &pos);
+
     current_pc = (pointcut *)Z_PTR_P(current_pc_value);
-    
-    //TODO:make JoinPoint object
-    object_init_ex(&aop_object, aop_joinpoint_ce);
-    joinpoint = (AopJoinpoint_object *)(Z_OBJ(aop_object));
-    joinpoint->ex = ex;
+
     joinpoint->current_pointcut = current_pc;
     joinpoint->pos = pos;
-    joinpoint->advice = pointcut_table;
     joinpoint->kind_of_advice = current_pc->kind_of_advice;
-    joinpoint->exception = NULL;
-
-    if (args_overloaded) {
-        Z_TRY_ADDREF_P(args);
-        joinpoint->args = args;
-    }
-    joinpoint->args_overloaded = args_overloaded;
 
     if (current_pc->kind_of_advice & AOP_KIND_BEFORE) {
         if (!EG(exception)) {
-            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            execute_pointcut(current_pc, aop_object, &pointcut_ret);
             if (&pointcut_ret != NULL) {
                 zval_ptr_dtor(&pointcut_ret);
             }
@@ -401,7 +528,7 @@ void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zen
     }
     if (current_pc->kind_of_advice & AOP_KIND_AROUND) {
         if (!EG(exception)) {
-            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            execute_pointcut(current_pc, aop_object, &pointcut_ret);
             if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
                 if (ex->return_value != NULL) {
                     zval_ptr_dtor(ex->return_value);
@@ -409,10 +536,15 @@ void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zen
                 } else {
                     zval_ptr_dtor(&pointcut_ret);
                 }
+            } else if (joinpoint->return_value != NULL) {
+                if (ex->return_value != NULL) {
+                    zval_ptr_dtor(ex->return_value);
+                    ZVAL_COPY(ex->return_value, joinpoint->return_value);
+                }
             }
         }
     } else {
-        func_pointcut_and_execute(pos, pointcut_table, ex, joinpoint->args_overloaded, joinpoint->args);
+        do_func_execute(pos, pointcut_table, ex, aop_object);
     }
     //AOP_KIND_AFTER
     if (current_pc->kind_of_advice & AOP_KIND_AFTER) {
@@ -420,7 +552,7 @@ void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zen
             exception = EG(exception);
             joinpoint->exception = exception;
             EG(exception) = NULL;
-            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            execute_pointcut(current_pc, aop_object, &pointcut_ret);
             EG(exception) = exception;
 
             if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
@@ -430,10 +562,15 @@ void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zen
                 } else {
                     zval_ptr_dtor(&pointcut_ret);
                 }
+            } else if (joinpoint->return_value != NULL) {
+                if (ex->return_value != NULL) {
+                    zval_ptr_dtor(ex->return_value);
+                    ZVAL_COPY(ex->return_value, joinpoint->return_value);
+                }
             }
 
         } else if (current_pc->kind_of_advice & AOP_KIND_RETURN && !EG(exception)) {
-            execute_pointcut(current_pc, &aop_object, ex, &pointcut_ret);
+            execute_pointcut(current_pc, aop_object, &pointcut_ret);
             
             if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
                 if (ex->return_value != NULL) {
@@ -442,18 +579,68 @@ void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zen
                 } else {
                     zval_ptr_dtor(&pointcut_ret);
                 }
+            } else if (joinpoint->return_value != NULL) {
+                if (ex->return_value != NULL) {
+                    zval_ptr_dtor(ex->return_value);
+                    ZVAL_COPY(ex->return_value, joinpoint->return_value);
+                }
             }
-
         }
     }
+}
+/*}}}*/
 
-    //Z_DELREF(aop_object);
+void func_pointcut_and_execute(zend_execute_data *ex) /*{{{*/
+{
+    zval aop_object;
+    AopJoinpoint_object *joinpoint;
+    zend_array *pointcut_table = NULL;
+    HashPosition pos;
+
+    //find pointcut of current call function
+    pointcut_table = get_cache_func (ex);
+    if (pointcut_table == NULL || zend_hash_num_elements(pointcut_table) == 0) {
+        AOP_G(overloaded) = 0;
+        execute_context(ex, NULL);
+        AOP_G(overloaded) = 1;
+        return;
+    }
+    zend_hash_internal_pointer_reset_ex(pointcut_table, &pos);
+        
+    object_init_ex(&aop_object, aop_joinpoint_ce);
+    joinpoint = (AopJoinpoint_object *)(Z_OBJ(aop_object));
+    joinpoint->ex = ex;
+    joinpoint->advice = pointcut_table;
+    joinpoint->exception = NULL;
+    joinpoint->args = NULL;
+    joinpoint->return_value = NULL;
+    
+    ZVAL_UNDEF(&joinpoint->property_value);
+
+    if (EG(current_execute_data) == ex){
+        //dely to execute call function, execute pointcut first
+        EG(current_execute_data) = ex->prev_execute_data;
+    }
+
+    int no_ret = 0;
+    if (ex->return_value == NULL) {
+        no_ret = 1;
+        ex->return_value = emalloc(sizeof(zval));
+    }
+
+    do_func_execute(pos, pointcut_table, ex, &aop_object);
+
+    if (no_ret == 1){
+        efree(ex->return_value);
+    }
+    
     zval_ptr_dtor(&aop_object);
     return;
 }
+/*}}}*/
 
 //execute_ex overload
-ZEND_API void aop_execute_ex(zend_execute_data *ex)
+ZEND_API void aop_execute_ex(zend_execute_data *ex) /*{{{*/
 {
     zend_function *fbc = NULL;
     HashPosition pos = 0;
@@ -465,11 +652,12 @@ ZEND_API void aop_execute_ex(zend_execute_data *ex)
     }
 
     AOP_G(overloaded) = 1;
-    func_pointcut_and_execute(pos, NULL, ex, 0, NULL);
+    func_pointcut_and_execute(ex);
     AOP_G(overloaded) = 0;
 }
+/*}}}*/
 
-ZEND_API void aop_execute_internal(zend_execute_data *ex, zval *return_value)
+ZEND_API void aop_execute_internal(zend_execute_data *ex, zval *return_value) /*{{{*/
 {
     zend_function *fbc = NULL;
     HashPosition pos = 0;
@@ -487,7 +675,228 @@ ZEND_API void aop_execute_internal(zend_execute_data *ex, zval *return_value)
     ex->return_value = return_value;
 
     AOP_G(overloaded) = 1;
-    func_pointcut_and_execute(pos, NULL, ex, 0, NULL);
+    func_pointcut_and_execute(ex);
     AOP_G(overloaded) = 0;
 }
+/*}}}*/
+
+void do_read_property(HashPosition pos, zend_array *pointcut_table, zval *aop_object) /*{{{*/
+{
+    pointcut *current_pc = NULL;
+    zval *current_pc_value = NULL;
+    zval pointcut_ret;
+    AopJoinpoint_object *joinpoint = (AopJoinpoint_object *)Z_OBJ_P(aop_object);
+    zval *property_value;
+    zend_class_entry *current_scope = NULL;
+
+    while(1){
+        current_pc_value = zend_hash_get_current_data_ex(pointcut_table, &pos);
+        if (current_pc_value == NULL || Z_TYPE_P(current_pc_value) != IS_UNDEF) {
+            break;
+        } else {
+            zend_hash_move_forward_ex(pointcut_table, &pos);
+        }
+    }
+
+    if (current_pc_value == NULL) {
+        if (EG(scope) != joinpoint->ex->called_scope) {
+            current_scope = EG(scope);
+            EG(scope) = joinpoint->ex->called_scope;
+        }
+        property_value = original_zend_std_read_property(joinpoint->object, joinpoint->member, joinpoint->type, joinpoint->cache_slot, joinpoint->rv);
+        ZVAL_COPY_VALUE(AOP_G(property_value), property_value);
+        if (current_scope != NULL) {
+            EG(scope) = current_scope;
+        }
+        return;
+    }
+    zend_hash_move_forward_ex(pointcut_table, &pos);
+
+    current_pc = (pointcut *)Z_PTR_P(current_pc_value);
+
+    joinpoint->current_pointcut = current_pc;
+    joinpoint->pos = pos;
+    joinpoint->kind_of_advice = (current_pc->kind_of_advice&AOP_KIND_WRITE) ? (current_pc->kind_of_advice - AOP_KIND_WRITE) : current_pc->kind_of_advice;
+
+    if (current_pc->kind_of_advice & AOP_KIND_BEFORE) {
+        execute_pointcut(current_pc, aop_object, &pointcut_ret);
+        if (&pointcut_ret != NULL) {
+            zval_ptr_dtor(&pointcut_ret);
+        }
+    }
+
+    if (current_pc->kind_of_advice & AOP_KIND_AROUND) {
+        execute_pointcut(current_pc, aop_object, &pointcut_ret);
+        if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
+            ZVAL_COPY_VALUE(AOP_G(property_value), &pointcut_ret);
+        } else if (joinpoint->return_value != NULL) {
+            ZVAL_COPY(AOP_G(property_value), joinpoint->return_value);
+        }
+    } else {
+        do_read_property(pos, pointcut_table, aop_object);
+    }
+
+    if (current_pc->kind_of_advice & AOP_KIND_AFTER) {
+        execute_pointcut(current_pc, aop_object, &pointcut_ret);
+        if (&pointcut_ret != NULL && !Z_ISNULL(pointcut_ret)) {
+            ZVAL_COPY_VALUE(AOP_G(property_value), &pointcut_ret);
+        } else if (joinpoint->return_value != NULL) {
+            ZVAL_COPY(AOP_G(property_value), joinpoint->return_value);
+        }
+    }
+}
+/*}}}*/
+
+zval *aop_read_property(zval *object, zval *member, int type, void **cache_slot, zval *rv) /*{{{*/
+{
+    zval aop_object;
+    AopJoinpoint_object *joinpoint;
+    zend_array *pointcut_table = NULL;
+    HashPosition pos;
+
+    if (AOP_G(lock_read_property) > 25) {
+        zend_error(E_ERROR, "Too many level of nested advices. Are there any recursive call ?");
+    }
+
+    pointcut_table = get_cache_property(object, member, AOP_KIND_READ);
+    if (pointcut_table == NULL || zend_hash_num_elements(pointcut_table) == 0) {
+        return original_zend_std_read_property(object,member,type,cache_slot,rv);
+    }
+    zend_hash_internal_pointer_reset_ex(pointcut_table, &pos);
+        
+    object_init_ex(&aop_object, aop_joinpoint_ce);
+    joinpoint = (AopJoinpoint_object *)(Z_OBJ(aop_object));
+    joinpoint->advice = pointcut_table;
+    joinpoint->ex = EG(current_execute_data);
+    joinpoint->args = NULL;
+    joinpoint->return_value = NULL;
+    joinpoint->object = object;
+    joinpoint->member = member;
+    joinpoint->type = type;
+    joinpoint->cache_slot = cache_slot;
+    joinpoint->rv = rv;
+    
+    ZVAL_UNDEF(&joinpoint->property_value);
+
+    if (AOP_G(property_value) == NULL) {
+        AOP_G(property_value) = emalloc(sizeof(zval));
+    }
+    ZVAL_NULL(AOP_G(property_value));
+
+    AOP_G(lock_read_property)++;
+    do_read_property(0, pointcut_table, &aop_object);
+    AOP_G(lock_read_property)--;
+
+    zval_ptr_dtor(&aop_object);
+    return AOP_G(property_value);
+}
+/*}}}*/
+
+void do_write_property(HashPosition pos, zend_array *pointcut_table, zval *aop_object) /*{{{*/
+{
+    pointcut *current_pc = NULL;
+    zval *current_pc_value = NULL;
+    zval pointcut_ret;
+    AopJoinpoint_object *joinpoint = (AopJoinpoint_object *)Z_OBJ_P(aop_object);
+    zval *property_value;
+    zend_class_entry *current_scope = NULL;
+
+    while(1){
+        current_pc_value = zend_hash_get_current_data_ex(pointcut_table, &pos);
+        if (current_pc_value == NULL || Z_TYPE_P(current_pc_value) != IS_UNDEF) {
+            break;
+        } else {
+            zend_hash_move_forward_ex(pointcut_table, &pos);
+        }
+    }
+
+    if (current_pc_value == NULL) {
+        if (EG(scope) != joinpoint->ex->called_scope) {
+            current_scope = EG(scope);
+            EG(scope) = joinpoint->ex->called_scope;
+        }
+        original_zend_std_write_property(joinpoint->object, joinpoint->member, &joinpoint->property_value, joinpoint->cache_slot);
+        if (current_scope != NULL) {
+            EG(scope) = current_scope;
+        }
+        return;
+    }
+    zend_hash_move_forward_ex(pointcut_table, &pos);
+
+    current_pc = (pointcut *)Z_PTR_P(current_pc_value);
+
+    joinpoint->current_pointcut = current_pc;
+    joinpoint->pos = pos;
+    joinpoint->kind_of_advice = (current_pc->kind_of_advice&AOP_KIND_READ) ? (current_pc->kind_of_advice - AOP_KIND_READ) : current_pc->kind_of_advice;
+
+    if (current_pc->kind_of_advice & AOP_KIND_BEFORE) {
+        execute_pointcut(current_pc, aop_object, &pointcut_ret);
+        if (&pointcut_ret != NULL) {
+            zval_ptr_dtor(&pointcut_ret);
+        }
+    }
+
+    if (current_pc->kind_of_advice & AOP_KIND_AROUND) {
+        execute_pointcut(current_pc, aop_object, &pointcut_ret);
+    } else {
+        do_write_property(pos, pointcut_table, aop_object);
+    }
+
+    if (current_pc->kind_of_advice & AOP_KIND_AFTER) {
+        execute_pointcut(current_pc, aop_object, &pointcut_ret);
+    }
+}
+/*}}}*/
+
+void aop_write_property(zval *object, zval *member, zval *value, void **cache_slot) /*{{{*/
+{
+    zval aop_object;
+    AopJoinpoint_object *joinpoint;
+    zend_array *pointcut_table = NULL;
+    HashPosition pos;
+
+    if (AOP_G(lock_write_property) > 25) {
+        zend_error(E_ERROR, "Too many level of nested advices. Are there any recursive call ?");
+    }
+
+    pointcut_table = get_cache_property(object, member, AOP_KIND_WRITE);
+    if (pointcut_table == NULL || zend_hash_num_elements(pointcut_table) == 0) {
+        original_zend_std_write_property(object, member, value, cache_slot);
+        return ;
+    }
+    zend_hash_internal_pointer_reset_ex(pointcut_table, &pos);
+        
+    object_init_ex(&aop_object, aop_joinpoint_ce);
+    joinpoint = (AopJoinpoint_object *)(Z_OBJ(aop_object));
+    joinpoint->advice = pointcut_table;
+    joinpoint->ex = EG(current_execute_data);
+    joinpoint->args = NULL;
+    joinpoint->return_value = NULL;
+    joinpoint->object = object;
+    joinpoint->member = member;
+    joinpoint->cache_slot = cache_slot;
+
+    ZVAL_COPY(&joinpoint->property_value, value);
+
+    AOP_G(lock_write_property)++;
+    do_write_property(0, pointcut_table, &aop_object);
+    AOP_G(lock_write_property)--;
+
+    zval_ptr_dtor(&aop_object);
+}
+/*}}}*/
+
+zval *aop_get_property_ptr_ptr(zval *object, zval *member, int type, void **cache_slot)
+{
+    zend_execute_data *ex = EG(current_execute_data);
+    if (ex->opline == NULL || (ex->opline->opcode != ZEND_PRE_INC_OBJ && ex->opline->opcode != ZEND_POST_INC_OBJ && ex->opline->opcode != ZEND_PRE_DEC_OBJ && ex->opline->opcode != ZEND_POST_DEC_OBJ)) {
+        return original_zend_std_get_property_ptr_ptr(object, member, type, cache_slot);
+    } else {
+        // Call original to not have a notice
+        original_zend_std_get_property_ptr_ptr(object, member, type, cache_slot);
+        return NULL;
+    }
+}
+
+
 

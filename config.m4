@@ -13,5 +13,5 @@ PHP_ARG_ENABLE(AOP, whether to enable AOP support,
 
 if test "$PHP_AOP" = "yes"; then
   AC_DEFINE(HAVE_AOP, 1, [aop])
-  PHP_NEW_EXTENSION(aop, php7/aop.c php7/lexer.c php7/aop_execute.c, $ext_shared)
+  PHP_NEW_EXTENSION(aop, php7/aop.c php7/lexer.c php7/aop_execute.c php7/aop_joinpoint.c, $ext_shared)
 fi

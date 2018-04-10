@@ -107,6 +107,11 @@ ZEND_BEGIN_MODULE_GLOBALS(aop)
 
 	object_cache **object_cache;
 	int object_cache_size;
+
+	int lock_read_property;
+	int lock_write_property;
+
+	zval *property_value;
 ZEND_END_MODULE_GLOBALS(aop)
 
 ZEND_API void (*original_zend_execute_ex)(zend_execute_data *execute_data);
@@ -115,8 +120,17 @@ ZEND_API void (*original_zend_execute_internal)(zend_execute_data *execute_data,
 ZEND_API void aop_execute_ex(zend_execute_data *execute_data);
 ZEND_API void aop_execute_internal(zend_execute_data *execute_data, zval *return_value);
 
-void func_pointcut_and_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_data *ex, int args_overloaded, zval *args);
+void do_func_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_data *ex, zval *object);
+void do_read_property(HashPosition pos, zend_array *pointcut_table, zval *aop_object);
+void do_write_property(HashPosition pos, zend_array *pointcut_table, zval *aop_object);
 
+zend_object_read_property_t			original_zend_std_read_property;
+zend_object_write_property_t		original_zend_std_write_property;
+zend_object_get_property_ptr_ptr_t	original_zend_std_get_property_ptr_ptr;
+
+zval *aop_read_property(zval *object, zval *member, int type, void **cache_slot, zval *rv);
+void aop_write_property(zval *object, zval *member, zval *value, void **cache_slot);
+zval *aop_get_property_ptr_ptr(zval *object, zval *member, int type, void **cache_slot);
 
 void free_pointcut_cache(zval *elem);
 

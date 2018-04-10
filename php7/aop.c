@@ -277,12 +277,26 @@ PHP_MINIT_FUNCTION(aop)
 {
 	REGISTER_INI_ENTRIES();
 	
-	//overload zend_execute_ex
+	//1.overload zend_execute_ex and zend_execute_internal
 	original_zend_execute_ex = zend_execute_ex;
 	zend_execute_ex = aop_execute_ex;
 
 	original_zend_execute_internal = zend_execute_internal;
 	zend_execute_internal = aop_execute_internal;
+
+	//2.overload zend_std_read_property and zend_std_write_property
+	original_zend_std_read_property = std_object_handlers.read_property;
+	std_object_handlers.read_property = aop_read_property;
+
+	original_zend_std_write_property = std_object_handlers.write_property;
+	std_object_handlers.write_property = aop_write_property;
+
+	/*
+	 * To avoid zendvm inc/dec property value directly
+	 * When get_property_ptr_ptr return NULL, zendvm will use write_property to inc/dec property value
+	 */
+	original_zend_std_get_property_ptr_ptr = std_object_handlers.get_property_ptr_ptr;
+	std_object_handlers.get_property_ptr_ptr = aop_get_property_ptr_ptr;
 
 	register_class_AopJoinPoint();
 
@@ -332,6 +346,8 @@ PHP_RINIT_FUNCTION(aop)
 
 	AOP_G(object_cache_size) = 1024;
     AOP_G(object_cache) = ecalloc(1024, sizeof(object_cache *));
+    
+	AOP_G(property_value) = NULL;
 
 	//init AOP_G(pointcuts_table)
 	ALLOC_HASHTABLE(AOP_G(pointcuts_table));
@@ -371,6 +387,11 @@ PHP_RSHUTDOWN_FUNCTION(aop)
 	}
 	efree(AOP_G(object_cache));
 
+	if (AOP_G(property_value) != NULL) {
+		zval_ptr_dtor(AOP_G(property_value));
+		efree(AOP_G(property_value));
+	}
+
     return SUCCESS;
 }
 /* }}} */
@@ -401,7 +422,10 @@ PHP_FUNCTION(aop_add_before)
 	ZEND_PARSE_PARAMETERS_START(2, 2)
 		Z_PARAM_STR(selector)
 		Z_PARAM_FUNC(fci, fci_cache)
-	ZEND_PARSE_PARAMETERS_END();
+	ZEND_PARSE_PARAMETERS_END_EX(
+        zend_error(E_ERROR, "aop_add_before() expects a string for the pointcut as a first argument and a callback as a second argument");
+		return;
+	);
 
 	if (&(fci.function_name)) {
 		Z_TRY_ADDREF(fci.function_name);
@@ -422,7 +446,10 @@ PHP_FUNCTION(aop_add_around)
 	ZEND_PARSE_PARAMETERS_START(2, 2)
 		Z_PARAM_STR(selector)
 		Z_PARAM_FUNC(fci, fci_cache)
-	ZEND_PARSE_PARAMETERS_END();
+	ZEND_PARSE_PARAMETERS_END_EX(
+		zend_error(E_ERROR, "aop_add_around() expects a string for the pointcut as a first argument and a callback as a second argument");
+		return;
+	);
 
 	if (&(fci.function_name)) {
 		Z_TRY_ADDREF(fci.function_name);
@@ -443,7 +470,10 @@ PHP_FUNCTION(aop_add_after)
 	ZEND_PARSE_PARAMETERS_START(2, 2)
 		Z_PARAM_STR(selector)
 		Z_PARAM_FUNC(fci, fci_cache)
-	ZEND_PARSE_PARAMETERS_END();
+	ZEND_PARSE_PARAMETERS_END_EX(
+        zend_error(E_ERROR, "aop_add_after() expects a string for the pointcut as a first argument and a callback as a second argument");
+		return;
+	);
 
 	if (&(fci.function_name)) {
 		Z_TRY_ADDREF(fci.function_name);
@@ -464,7 +494,10 @@ PHP_FUNCTION(aop_add_after_returning)
 	ZEND_PARSE_PARAMETERS_START(2, 2)
 		Z_PARAM_STR(selector)
 		Z_PARAM_FUNC(fci, fci_cache)
-	ZEND_PARSE_PARAMETERS_END();
+	ZEND_PARSE_PARAMETERS_END_EX(
+        zend_error(E_ERROR, "aop_add_after() expects a string for the pointcut as a first argument and a callback as a second argument");
+		return;
+	);
 
 	if (&(fci.function_name)) {
 		Z_TRY_ADDREF(fci.function_name);
@@ -485,7 +518,10 @@ PHP_FUNCTION(aop_add_after_throwing)
 	ZEND_PARSE_PARAMETERS_START(2, 2)
 		Z_PARAM_STR(selector)
 		Z_PARAM_FUNC(fci, fci_cache)
-	ZEND_PARSE_PARAMETERS_END();
+	ZEND_PARSE_PARAMETERS_END_EX(
+        zend_error(E_ERROR, "aop_add_after() expects a string for the pointcut as a first argument and a callback as a second argument");
+		return;
+	);
 
 	if (&(fci.function_name)) {
 		Z_TRY_ADDREF(fci.function_name);

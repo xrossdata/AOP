@@ -5,6 +5,7 @@ Read / Write Property with inc or dec
 
 class A {
     public $var1=5;
+    public $var2=5;
 
 }
 

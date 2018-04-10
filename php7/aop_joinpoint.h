@@ -29,9 +29,14 @@ typedef struct {
     zend_object *exception;
     
     zval *args;
-    int args_overloaded;
-
     zval *return_value;
+
+    zval *object;
+    zval *member;
+    int type;
+    void **cache_slot;
+    zval *rv;
+    zval property_value;
 } AopJoinpoint_object;
 
 extern zend_class_entry *aop_joinpoint_ce;
@@ -39,19 +44,19 @@ extern zend_class_entry *aop_joinpoint_ce;
 void register_class_AopJoinPoint(void);
 
 PHP_METHOD(AopJoinpoint, getArguments); //done
-PHP_METHOD(AopJoinpoint, getPropertyName);
-PHP_METHOD(AopJoinpoint, getPropertyValue);
+PHP_METHOD(AopJoinpoint, getPropertyName);//done
+PHP_METHOD(AopJoinpoint, getPropertyValue);//done
 PHP_METHOD(AopJoinpoint, setArguments);//done
 PHP_METHOD(AopJoinpoint, getKindOfAdvice);//done
 PHP_METHOD(AopJoinpoint, getReturnedValue);//done
-PHP_METHOD(AopJoinpoint, getAssignedValue);
-PHP_METHOD(AopJoinpoint, setReturnedValue);
-PHP_METHOD(AopJoinpoint, setAssignedValue);
+PHP_METHOD(AopJoinpoint, setReturnedValue);//done
+PHP_METHOD(AopJoinpoint, getAssignedValue);//done
+PHP_METHOD(AopJoinpoint, setAssignedValue);//done
 PHP_METHOD(AopJoinpoint, getPointcut);//done
 PHP_METHOD(AopJoinpoint, getObject);//done
 PHP_METHOD(AopJoinpoint, getClassName);//done
-PHP_METHOD(AopJoinpoint, getMethodName);
-PHP_METHOD(AopJoinpoint, getFunctionName);
+PHP_METHOD(AopJoinpoint, getMethodName);//done
+PHP_METHOD(AopJoinpoint, getFunctionName);//done
 PHP_METHOD(AopJoinpoint, getException);//done
 PHP_METHOD(AopJoinpoint, process);//done
 
