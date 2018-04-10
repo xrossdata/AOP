@@ -626,11 +626,13 @@ void func_pointcut_and_execute(zend_execute_data *ex) /*{{{*/
     if (ex->return_value == NULL) {
         no_ret = 1;
         ex->return_value = emalloc(sizeof(zval));
+        ZVAL_UNDEF(ex->return_value);
     }
 
     do_func_execute(pos, pointcut_table, ex, &aop_object);
 
     if (no_ret == 1){
+        zval_ptr_dtor(ex->return_value);
         efree(ex->return_value);
     }
     

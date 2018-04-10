@@ -307,10 +307,8 @@ PHP_METHOD(AopJoinpoint, getReturnedValue)
     }
 
     if (object->ex->return_value != NULL) {
-        RETURN_ZVAL(object->ex->return_value, 1, 0);
-    }
-    if (object->return_value != NULL) {
-        RETURN_ZVAL(object->ex->return_value, 1, 0);
+        //RETURN_ZVAL(object->ex->return_value, 1, 0);
+        _zend_assign_to_variable_reference(return_value, object->ex->return_value);
     }
 }
 /*}}}*/
