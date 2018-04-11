@@ -171,13 +171,19 @@ static zend_array *calculate_function_pointcuts(zend_execute_data *ex) /*{{{*/
     pointcut *pc;
     zend_ulong h;
 
+#if PHP_MINOR_VERSION < 1
     object = Z_OBJ(ex->This);
+#else
+    if (Z_TYPE(ex->This) == IS_OBJECT) {
+        object = Z_OBJ(ex->This);
+    }
+#endif
     if (object != NULL) {
         ce = Z_OBJCE(ex->This);
     }
 
     if (ce == NULL && ex->func->common.fn_flags & ZEND_ACC_STATIC) {
-        ce = ex->called_scope;
+        ce = ex->func->common.scope;//ex->called_scope;
     }
     
     class_pointcuts = calculate_class_pointcuts(ce, AOP_KIND_FUNCTION | AOP_KIND_METHOD);
@@ -195,12 +201,12 @@ static zend_array *calculate_function_pointcuts(zend_execute_data *ex) /*{{{*/
 }
 /*}}}*/
 
-static int test_property_scope(pointcut *current_pc, zend_class_entry *ce, zval *member) /*{{{*/
+static int test_property_scope(pointcut *current_pc, zend_class_entry *ce, zend_string *member_str) /*{{{*/
 {
     zval *property_info_val;
     zend_property_info *property_info = NULL;
     
-    property_info_val = zend_hash_find(&ce->properties_info, Z_STR_P(member));
+    property_info_val = zend_hash_find(&ce->properties_info, member_str);
     if (property_info_val) {
         property_info = (zend_property_info *)Z_PTR_P(property_info_val);
         if (current_pc->static_state != 2) {
@@ -229,7 +235,7 @@ static int test_property_scope(pointcut *current_pc, zend_class_entry *ce, zval 
 }
 /*}}}*/
 
-static zend_array *calculate_property_pointcuts(zval *object, zval *member, int kind)
+static zend_array *calculate_property_pointcuts(zval *object, zend_string *member_str, int kind)
 {
     zend_array *class_pointcuts;
     zval *pc_value;
@@ -241,14 +247,14 @@ static zend_array *calculate_property_pointcuts(zval *object, zval *member, int 
     ZEND_HASH_FOREACH_NUM_KEY_VAL(class_pointcuts, h, pc_value) {
         pc = (pointcut *)Z_PTR_P(pc_value);
         if (ZSTR_VAL(pc->method)[0] != '*') {
-            if (!strcmp_with_joker_case(ZSTR_VAL(pc->method), ZSTR_VAL(Z_STR_P(member)), 1)) {
+            if (!strcmp_with_joker_case(ZSTR_VAL(pc->method), ZSTR_VAL(member_str), 1)) {
                 zend_hash_index_del(class_pointcuts, h);
                 continue;
             }
         }
         //Scope
         if (pc->static_state != 2 || pc->scope != 0) {
-            if (!test_property_scope(pc, Z_OBJCE_P(object), member)) {
+            if (!test_property_scope(pc, Z_OBJCE_P(object), member_str)) {
                 zend_hash_index_del(class_pointcuts, h);
                 continue;
             }
@@ -327,19 +333,25 @@ static zend_array *get_cache_func(zend_execute_data *ex) /*{{{*/
     zval pointcut_cache_value;
     pointcut_cache *_pointcut_cache = NULL;
 
+#if PHP_MINOR_VERSION < 1
     object = Z_OBJ(ex->This);
+#else
+    if (Z_TYPE(ex->This) == IS_OBJECT) {
+        object = Z_OBJ(ex->This);
+    }
+#endif
     //1.search cache
     if (object == NULL) { //function or static method
         ht_object_cache = AOP_G(function_cache);
         if (ex->func->common.fn_flags & ZEND_ACC_STATIC) {
-            ce = ex->called_scope;
+            ce = ex->func->common.scope;//ex->called_scope;
             cache_key = zend_string_init("", ZSTR_LEN(ex->func->common.function_name) + ZSTR_LEN(ce->name) + 2, 0);
             sprintf((char *)ZSTR_VAL(cache_key), "%s::%s", ZSTR_VAL(ce->name), ZSTR_VAL(ex->func->common.function_name));
         } else {
             cache_key = zend_string_copy(ex->func->common.function_name);
         }
     } else { //method
-        ce = ex->called_scope;
+        ce = ex->func->common.scope;//ex->called_scope;
         cache_key = zend_string_copy(ex->func->common.function_name);
         ht_object_cache = get_object_cache_func(object);
     }    
@@ -381,31 +393,40 @@ static zend_array *get_cache_property(zval *object, zval *member, int type) /*{{
     zval *cache = NULL;
     pointcut_cache *_pointcut_cache = NULL;
     zval pointcut_cache_value;
+    zend_string *member_str = NULL;
 
     if (type & AOP_KIND_READ) {
         ht_object_cache = get_object_cache_read(Z_OBJ_P(object));
     } else {
         ht_object_cache = get_object_cache_write(Z_OBJ_P(object));
     }
-    
-    cache = zend_hash_find(ht_object_cache, Z_STR_P(member));
+
+    if (Z_TYPE_P(member) != IS_STRING ) {
+        member_str = zval_get_string(member);
+    } else {
+        member_str = Z_STR_P(member);
+    }
+    cache = zend_hash_find(ht_object_cache, member_str);
 
     if (cache != NULL) {
         _pointcut_cache = (pointcut_cache *)Z_PTR_P(cache);
         if (_pointcut_cache->version != AOP_G(pointcut_version) || _pointcut_cache->ce != Z_OBJCE_P(object)) {
             //cache lost
             _pointcut_cache = NULL;
-            zend_hash_del(ht_object_cache, Z_STR_P(member));
+            zend_hash_del(ht_object_cache, member_str);
         }
     }
     if (_pointcut_cache == NULL) {
         _pointcut_cache = (pointcut_cache *)emalloc(sizeof(pointcut_cache));
-        _pointcut_cache->ht = calculate_property_pointcuts(object, member, type);
+        _pointcut_cache->ht = calculate_property_pointcuts(object, member_str, type);
         _pointcut_cache->version = AOP_G(pointcut_version);
         _pointcut_cache->ce = Z_OBJCE_P(object);
 
         ZVAL_PTR(&pointcut_cache_value, _pointcut_cache);
-        zend_hash_add(ht_object_cache, Z_STR_P(member), &pointcut_cache_value);
+        zend_hash_add(ht_object_cache, member_str, &pointcut_cache_value);
+    }
+    if (member_str != Z_STR_P(member)) {
+        zend_string_release(member_str);
     }
     return _pointcut_cache->ht;
 }
@@ -495,18 +516,21 @@ void do_func_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_
     }
 
     if (current_pc_value == NULL) {
+#if PHP_MINOR_VERSION < 1
         if (EG(scope) != ex->called_scope) {
             current_scope = EG(scope);
             EG(scope) = ex->called_scope;
         }
-
+#endif
         AOP_G(overloaded) = 0;
         execute_context(ex, joinpoint->args);
         AOP_G(overloaded) = 1;
 
+#if PHP_MINOR_VERSION < 1
         if (current_scope != NULL) {
             EG(scope) = current_scope;
         }
+#endif
 
         return;
     }
@@ -596,6 +620,7 @@ void func_pointcut_and_execute(zend_execute_data *ex) /*{{{*/
     AopJoinpoint_object *joinpoint;
     zend_array *pointcut_table = NULL;
     HashPosition pos;
+    zval *real_return_value;
 
     //find pointcut of current call function
     pointcut_table = get_cache_func (ex);
@@ -634,6 +659,13 @@ void func_pointcut_and_execute(zend_execute_data *ex) /*{{{*/
     if (no_ret == 1){
         zval_ptr_dtor(ex->return_value);
         efree(ex->return_value);
+    } else {
+        if (joinpoint->return_value_changed && Z_ISREF_P(ex->return_value)) {
+            real_return_value = Z_REFVAL_P(ex->return_value);
+            Z_TRY_ADDREF_P(real_return_value);
+            zval_ptr_dtor(ex->return_value);
+            ZVAL_COPY_VALUE(ex->return_value, real_return_value);
+        }
     }
     
     zval_ptr_dtor(&aop_object);
@@ -701,14 +733,27 @@ void do_read_property(HashPosition pos, zend_array *pointcut_table, zval *aop_ob
     }
 
     if (current_pc_value == NULL) {
+#if PHP_MINOR_VERSION < 1
         if (EG(scope) != joinpoint->ex->called_scope) {
             current_scope = EG(scope);
             EG(scope) = joinpoint->ex->called_scope;
         }
+#else
+        if (EG(fake_scope) != joinpoint->ex->func->common.scope) {
+            current_scope = EG(fake_scope);
+            EG(fake_scope) = joinpoint->ex->func->common.scope;
+        }
+#endif
+
         property_value = original_zend_std_read_property(joinpoint->object, joinpoint->member, joinpoint->type, joinpoint->cache_slot, joinpoint->rv);
         ZVAL_COPY_VALUE(AOP_G(property_value), property_value);
+
         if (current_scope != NULL) {
+#if PHP_MINOR_VERSION < 1
             EG(scope) = current_scope;
+#else
+            EG(fake_scope) = current_scope;
+#endif
         }
         return;
     }
@@ -813,13 +858,24 @@ void do_write_property(HashPosition pos, zend_array *pointcut_table, zval *aop_o
     }
 
     if (current_pc_value == NULL) {
+#if PHP_MINOR_VERSION < 1
         if (EG(scope) != joinpoint->ex->called_scope) {
             current_scope = EG(scope);
             EG(scope) = joinpoint->ex->called_scope;
         }
+#else
+        if (EG(fake_scope) != joinpoint->ex->func->common.scope) {
+            current_scope = EG(fake_scope);
+            EG(fake_scope) = joinpoint->ex->func->common.scope;
+        }
+#endif
         original_zend_std_write_property(joinpoint->object, joinpoint->member, &joinpoint->property_value, joinpoint->cache_slot);
         if (current_scope != NULL) {
+#if PHP_MINOR_VERSION < 1
             EG(scope) = current_scope;
+#else
+            EG(fake_scope) = current_scope;
+#endif
         }
         return;
     }

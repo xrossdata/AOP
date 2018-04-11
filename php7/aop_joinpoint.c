@@ -49,7 +49,7 @@ ZEND_BEGIN_ARG_INFO(arginfo_aop_args_setAssignedValue, 0)
 ZEND_END_ARG_INFO()
 
 zend_function_entry aop_joinpoint_methods[] = {
-    PHP_ME(AopJoinpoint, getArguments, arginfo_aop_args_returnbyref, 0)
+    PHP_ME(AopJoinpoint, getArguments, NULL, 0)
     PHP_ME(AopJoinpoint, setArguments, arginfo_aop_args_setArguments, 0)
     PHP_ME(AopJoinpoint, getException, NULL, 0)
     PHP_ME(AopJoinpoint, getPointcut, NULL, 0)
@@ -307,7 +307,9 @@ PHP_METHOD(AopJoinpoint, getReturnedValue)
     }
 
     if (object->ex->return_value != NULL) {
-        //RETURN_ZVAL(object->ex->return_value, 1, 0);
+        if (EXPECTED(!Z_ISREF_P(object->ex->return_value))) {
+            object->return_value_changed = 1;
+        }
         _zend_assign_to_variable_reference(return_value, object->ex->return_value);
     }
 }
@@ -361,7 +363,7 @@ PHP_METHOD(AopJoinpoint, getClassName)
         }
 
         if (ce == NULL && object->ex->func->common.fn_flags & ZEND_ACC_STATIC) {
-            ce = object->ex->called_scope;
+            ce = object->ex->func->common.scope;//object->ex->called_scope;
             RETURN_STR(ce->name);
         }
     }

@@ -30,6 +30,7 @@ typedef struct {
     
     zval *args;
     zval *return_value;
+    int return_value_changed;
 
     zval *object;
     zval *member;
