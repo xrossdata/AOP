@@ -1,11 +1,12 @@
-language: php
+language: php 
 
 php:
-    # We only specify one version so we only get one worker
-    - 7.0
-    - 7.1
-    - 7.2
+  - 7.0
+  - 7.1
+  - 7.2
 
 before_script:
-    - phpize && ./configure && make && sudo make install
-    - echo "extension=aop.so" >> `php --ini | grep "Loaded Configuration" | sed -e "s|.*:\s*||"`
+    - ./travis/compile.sh
+
+script:
+    - ./travis/run-test.sh
