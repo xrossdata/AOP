@@ -7,17 +7,13 @@ The AOP extension is designed to be the easiest way you can think of for integra
 
 AOP aims to allow separation of cross-cutting concerns (cache, log, security, transactions, ...)
 
-[![Build Status](https://secure.travis-ci.org/AOP-PHP/AOP.png?branch=master)](http://travis-ci.org/AOP-PHP/AOP)
+[![Build Status](https://travis-ci.org/pangudashu/AOP.svg?branch=master)](https://travis-ci.org/pangudashu/AOP)
+
+## Requirements ##
+
+- Version 1.0.0: php 7.0.0 or later
 
 ## Installation ##
-
-You can use pecl
-
-```sh
-    sudo pecl install aop-beta
-```
-
-or
 
 Download the AOP from github, compile and add the extension to your php.ini
 
@@ -39,7 +35,7 @@ Download the AOP from github, compile and add the extension to your php.ini
 Now you can add the following line to your php.ini to enables AOP
 
 ```ini
-    extension=AOP.so
+    extension=aop.so
 ```
 
 ## What is AOP ? Basic tutorial ##
