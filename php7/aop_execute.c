@@ -12,7 +12,7 @@
   | obtain it through the world-wide-web, please send a note to          |
   | license@php.net so we can mail you a copy immediately.               |
   +----------------------------------------------------------------------+
-  | Author: pangudashu                                                   |
+  | Author: pangudashu@gmail.com                                         |
   +----------------------------------------------------------------------+
 */
 #ifdef HAVE_CONFIG_H
@@ -493,7 +493,11 @@ static void execute_context(zend_execute_data *ex, zval *args) /*{{{*/
             execute_internal(ex, ex->return_value);
         }
     } else { /* ZEND_OVERLOADED_FUNCTION */
-        //TODO:
+#if PHP_MINOR_VERSION < 2
+        zend_do_fcall_overloaded(ex->func, ex, ex->return_value);
+#else
+        zend_do_fcall_overloaded(ex, ex->return_value);
+#endif
     }
 }
 /*}}}*/
@@ -834,7 +838,8 @@ zval *aop_read_property(zval *object, zval *member, int type, void **cache_slot,
     joinpoint->object = object;
     joinpoint->member = member;
     joinpoint->type = type;
-    joinpoint->cache_slot = cache_slot;
+    //To avoid use runtime cache
+    joinpoint->cache_slot = NULL;//cache_slot;
     joinpoint->rv = rv;
     
     ZVAL_UNDEF(&joinpoint->property_value);
@@ -946,7 +951,8 @@ void aop_write_property(zval *object, zval *member, zval *value, void **cache_sl
     joinpoint->return_value = NULL;
     joinpoint->object = object;
     joinpoint->member = member;
-    joinpoint->cache_slot = cache_slot;
+    //To avoid use runtime cache
+    joinpoint->cache_slot = NULL;//cache_slot;
 
     ZVAL_COPY(&joinpoint->property_value, value);
 
