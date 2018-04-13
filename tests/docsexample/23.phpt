@@ -10,7 +10,7 @@ namespace {
  function foooBar(){}
  function someBar(){}
 
- class Object {
+ class MyObject {
     public function foo () {
     }
  }
@@ -80,7 +80,7 @@ namespace Test {
  aop_add_before('*\\*\\bar()', function (\AopJoinPoint $jp) { echo $jp->getFunctionName(), " -> *\\*\\bar()\n";});
  aop_add_before('StartWithFoo*\\**\\bar()', function (\AopJoinPoint $jp) { echo $jp->getFunctionName(), " -> StartWithFoo*\\**\\bar()\n";});
 
- $object = new \Object();
+ $object = new \MyObject();
  \foo();
  \Foo();
  \fOo();
