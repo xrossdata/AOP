@@ -139,7 +139,7 @@ void register_class_AopJoinPoint(void) /*{{{*/
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getArguments()
+/*{{{ proto array AopJoinpoint::getArguments()
  */
 PHP_METHOD(AopJoinpoint, getArguments)
 {
@@ -166,7 +166,7 @@ PHP_METHOD(AopJoinpoint, getArguments)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::setArguments()
+/*{{{ proto void AopJoinpoint::setArguments(array arguments)
  */
 PHP_METHOD(AopJoinpoint, setArguments)
 {
@@ -192,7 +192,7 @@ PHP_METHOD(AopJoinpoint, setArguments)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getException()
+/*{{{ proto mixed AopJoinpoint::getException()
  */
 PHP_METHOD(AopJoinpoint, getException)
 {
@@ -211,7 +211,7 @@ PHP_METHOD(AopJoinpoint, getException)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getPointcut()
+/*{{{ proto string AopJoinpoint::getPointcut()
  */
 PHP_METHOD(AopJoinpoint, getPointcut)
 {
@@ -220,7 +220,7 @@ PHP_METHOD(AopJoinpoint, getPointcut)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::process()
+/*{{{ proto void AopJoinpoint::process()
  */
 PHP_METHOD(AopJoinpoint, process)
 {
@@ -260,7 +260,7 @@ PHP_METHOD(AopJoinpoint, process)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getPointcut()
+/*{{{ proto int AopJoinpoint::getKindOfAdvice()
  */
 PHP_METHOD(AopJoinpoint, getKindOfAdvice)
 {
@@ -269,7 +269,7 @@ PHP_METHOD(AopJoinpoint, getKindOfAdvice)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getObject()
+/*{{{ proto mixed AopJoinpoint::getObject()
  */
 PHP_METHOD(AopJoinpoint, getObject)
 {
@@ -281,7 +281,13 @@ PHP_METHOD(AopJoinpoint, getObject)
             RETURN_ZVAL(object->object, 1, 0);
         }
     } else {
+#if PHP_MINOR_VERSION < 1
         call_object = Z_OBJ(object->ex->This);
+#else
+        if (Z_TYPE(object->ex->This) == IS_OBJECT) {
+            call_object = Z_OBJ(object->ex->This);
+        }
+#endif
         if (call_object != NULL) {
             RETURN_ZVAL(&object->ex->This, 1, 0);
         }
@@ -290,7 +296,7 @@ PHP_METHOD(AopJoinpoint, getObject)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getReturnedValue()
+/*{{{ proto mixed AopJoinpoint::getReturnedValue()
  */
 PHP_METHOD(AopJoinpoint, getReturnedValue)
 {
@@ -312,7 +318,7 @@ PHP_METHOD(AopJoinpoint, getReturnedValue)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::setReturnedValue()
+/*{{{ proto void AopJoinpoint::setReturnedValue(mixed return_value)
  */
 PHP_METHOD(AopJoinpoint, setReturnedValue)
 {
@@ -338,7 +344,7 @@ PHP_METHOD(AopJoinpoint, setReturnedValue)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getClassName()
+/*{{{ proto string AopJoinpoint::getClassName()
  */
 PHP_METHOD(AopJoinpoint, getClassName)
 {
@@ -353,7 +359,13 @@ PHP_METHOD(AopJoinpoint, getClassName)
         zend_class_entry *ce = NULL;
         zend_object *call_object = NULL;
 
+#if PHP_MINOR_VERSION < 1
         call_object = Z_OBJ(object->ex->This);
+#else
+        if (Z_TYPE(object->ex->This) == IS_OBJECT) {
+            call_object = Z_OBJ(object->ex->This);
+        }
+#endif
         if (call_object != NULL) {
             ce = Z_OBJCE(object->ex->This);
             RETURN_STR(ce->name);
@@ -368,7 +380,7 @@ PHP_METHOD(AopJoinpoint, getClassName)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getMethodName()
+/*{{{ proto string AopJoinpoint::getMethodName()
  */
 PHP_METHOD(AopJoinpoint, getMethodName)
 {
@@ -384,7 +396,7 @@ PHP_METHOD(AopJoinpoint, getMethodName)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getFunctionName()
+/*{{{ proto string AopJoinpoint::getFunctionName()
  */
 PHP_METHOD(AopJoinpoint, getFunctionName)
 {
@@ -400,7 +412,7 @@ PHP_METHOD(AopJoinpoint, getFunctionName)
 }
 /*}}}*/
 
-/*{{{ proto AopJoinpoint::getAssignedValue()
+/*{{{ proto mixed AopJoinpoint::getAssignedValue()
  */
 PHP_METHOD(AopJoinpoint, getAssignedValue)
 {
@@ -418,6 +430,8 @@ PHP_METHOD(AopJoinpoint, getAssignedValue)
 }
 /*}}}*/
 
+/*{{{ proto void AopJoinpoint::setAssignedValue(mixed property_value)
+ */
 PHP_METHOD(AopJoinpoint, setAssignedValue)
 {
     zval *assigned_value;
@@ -441,7 +455,10 @@ PHP_METHOD(AopJoinpoint, setAssignedValue)
     ZVAL_COPY(&object->property_value, assigned_value);
     RETURN_NULL();
 }
+/*}}}*/
 
+/*{{{ proto mixed AopJoinpoint::getPropertyName()
+ */
 PHP_METHOD(AopJoinpoint, getPropertyName)
 {
     AopJoinpoint_object *object = (AopJoinpoint_object *)Z_OBJ_P(getThis());
@@ -456,7 +473,10 @@ PHP_METHOD(AopJoinpoint, getPropertyName)
     }
     RETURN_NULL();
 }
+/*}}}*/
 
+/*{{{ proto mixed AopJoinpoint::getPropertyValue()
+ */
 PHP_METHOD(AopJoinpoint, getPropertyValue)
 {
     zval *ret;
@@ -471,5 +491,6 @@ PHP_METHOD(AopJoinpoint, getPropertyValue)
     }
     RETURN_ZVAL(ret, 1, 0);
 }
+/*}}}*/
 
 

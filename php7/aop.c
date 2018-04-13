@@ -413,7 +413,7 @@ PHP_MINFO_FUNCTION(aop)
 }
 /* }}} */
 
-/*{{{ proto aop_add_before()
+/*{{{ proto void aop_add_before(string selector, mixed pointcut)
  */
 PHP_FUNCTION(aop_add_before)
 {
@@ -437,7 +437,7 @@ PHP_FUNCTION(aop_add_before)
 }
 /*}}}*/
 
-/*{{{ proto aop_add_around()
+/*{{{ proto void aop_add_around(string selector, mixed pointcut)
  */
 PHP_FUNCTION(aop_add_around)
 {
@@ -461,7 +461,7 @@ PHP_FUNCTION(aop_add_around)
 }
 /*}}}*/
 
-/*{{{ proto aop_add_after()
+/*{{{ proto void aop_add_after(string selector, mixed pointcut)
  */
 PHP_FUNCTION(aop_add_after)
 {
@@ -485,7 +485,7 @@ PHP_FUNCTION(aop_add_after)
 }
 /*}}}*/
 
-/*{{{ proto aop_add_after_returning()
+/*{{{ proto void aop_add_after_returning(string selector, mixed pointcut)
  */
 PHP_FUNCTION(aop_add_after_returning)
 {
@@ -509,7 +509,7 @@ PHP_FUNCTION(aop_add_after_returning)
 }
 /*}}}*/
 
-/*{{{ proto aop_add_after_throwing()
+/*{{{ proto void aop_add_after_throwing(string selector, mixed pointcut)
  */
 PHP_FUNCTION(aop_add_after_throwing)
 {
