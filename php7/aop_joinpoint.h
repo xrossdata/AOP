@@ -26,6 +26,7 @@ typedef struct {
     HashPosition pos;
     int kind_of_advice;
     zend_execute_data *ex;
+    int is_ex_executed;
     zend_object *exception;
     
     zval *args;

@@ -235,7 +235,7 @@ static int test_property_scope(pointcut *current_pc, zend_class_entry *ce, zend_
 }
 /*}}}*/
 
-static zend_array *calculate_property_pointcuts(zval *object, zend_string *member_str, int kind)
+static zend_array *calculate_property_pointcuts(zval *object, zend_string *member_str, int kind) /*{{{*/
 {
     zend_array *class_pointcuts;
     zval *pc_value;
@@ -263,6 +263,7 @@ static zend_array *calculate_property_pointcuts(zval *object, zend_string *membe
 
     return class_pointcuts;
 }
+/*}}}*/
 
 object_cache *get_object_cache (zend_object *object) /*{{{*/
 {
@@ -471,7 +472,7 @@ static void execute_context(zend_execute_data *ex, zval *args) /*{{{*/
                 continue;
             }
             original_args_value = ZEND_CALL_VAR_NUM(ex, args_index);
-            Z_TRY_DELREF_P(original_args_value);
+            zval_ptr_dtor(original_args_value);
 
             ZVAL_COPY(original_args_value, overload_args_value);
             num_args++;
@@ -525,6 +526,8 @@ void do_func_execute(HashPosition pos, zend_array *pointcut_table, zend_execute_
         AOP_G(overloaded) = 0;
         execute_context(ex, joinpoint->args);
         AOP_G(overloaded) = 1;
+
+        joinpoint->is_ex_executed = 1;
 
 #if PHP_MINOR_VERSION < 1
         if (current_scope != NULL) {
@@ -635,6 +638,7 @@ void func_pointcut_and_execute(zend_execute_data *ex) /*{{{*/
     object_init_ex(&aop_object, aop_joinpoint_ce);
     joinpoint = (AopJoinpoint_object *)(Z_OBJ(aop_object));
     joinpoint->ex = ex;
+    joinpoint->is_ex_executed = 0;
     joinpoint->advice = pointcut_table;
     joinpoint->exception = NULL;
     joinpoint->args = NULL;
@@ -666,6 +670,16 @@ void func_pointcut_and_execute(zend_execute_data *ex) /*{{{*/
             zval_ptr_dtor(ex->return_value);
             ZVAL_COPY_VALUE(ex->return_value, real_return_value);
         }
+    }
+
+    if (joinpoint->is_ex_executed == 0) {
+        uint32_t i, num_args = 0;
+        zval *original_args_value;
+
+         for (i = 0; i < ex->func->common.num_args; i++) {
+            original_args_value = ZEND_CALL_VAR_NUM(ex, i);
+            zval_ptr_dtor(original_args_value);
+         }
     }
     
     zval_ptr_dtor(&aop_object);

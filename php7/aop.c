@@ -349,6 +349,9 @@ PHP_RINIT_FUNCTION(aop)
     
 	AOP_G(property_value) = NULL;
 
+	AOP_G(lock_read_property) = 0;
+	AOP_G(lock_write_property) = 0;
+
 	//init AOP_G(pointcuts_table)
 	ALLOC_HASHTABLE(AOP_G(pointcuts_table));
 	zend_hash_init(AOP_G(pointcuts_table), 16, NULL, free_pointcut, 0);	
@@ -553,8 +556,12 @@ zend_module_entry aop_module_entry = {
     PHP_RINIT(aop),     /* Replace with NULL if there's nothing to do at request start */
     PHP_RSHUTDOWN(aop), /* Replace with NULL if there's nothing to do at request end */
     PHP_MINFO(aop),
-    PHP_AOP_VERSION,
-    STANDARD_MODULE_PROPERTIES
+	PHP_AOP_VERSION,
+	PHP_MODULE_GLOBALS(aop),
+	NULL,
+	NULL,
+	NULL,
+	STANDARD_MODULE_PROPERTIES_EX
 };
 /* }}} */
 

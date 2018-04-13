@@ -75,16 +75,13 @@ void aop_free_JoinPoint(zend_object *object)
 
     if (obj->args != NULL) {
         zval_ptr_dtor(obj->args);
-        //Z_TRY_DELREF_P(obj->args);
         efree(obj->args);
     }
     if (obj->return_value != NULL) {
         zval_ptr_dtor(obj->return_value);
-        //Z_TRY_DELREF_P(obj->return_value);
         efree(obj->return_value);
     }
     if (Z_TYPE(obj->property_value) != IS_UNDEF) {
-        //Z_TRY_DELREF_P(obj->property_value);
         zval_ptr_dtor(&obj->property_value);
         //efree(obj->property_value);
     }
