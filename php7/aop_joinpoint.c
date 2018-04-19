@@ -146,20 +146,42 @@ PHP_METHOD(AopJoinpoint, getArguments)
     AopJoinpoint_object *object = (AopJoinpoint_object *)Z_OBJ_P(getThis());
 
     if (object->args == NULL) {
-        uint32_t num_args, i;
-        zval *arg;
+        uint32_t call_num_args, first_extra_arg, i, arg_index = 0;
+        zval *arg, *extra_start;
         zval *ret = emalloc(sizeof(zval));
+        zend_op_array *op_array = &object->ex->func->op_array;
         
         array_init(ret);
-        num_args = ZEND_CALL_NUM_ARGS(object->ex);
-        for (i = 0; i < num_args; i++){
-            arg = ZEND_CALL_VAR_NUM(object->ex, i);
-            if (Z_ISUNDEF_P(arg)) {
-                continue;
+        
+        first_extra_arg = op_array->num_args;
+        call_num_args = ZEND_CALL_NUM_ARGS(object->ex);
+
+        if (call_num_args <= first_extra_arg) {
+            for (i = 0; i < call_num_args; i++){
+                arg = ZEND_CALL_VAR_NUM(object->ex, i);
+                if (Z_ISUNDEF_P(arg)) {
+                    continue;
+                }
+                Z_TRY_ADDREF_P(arg);
+                zend_hash_next_index_insert(Z_ARR_P(ret), arg);
             }
-            Z_TRY_ADDREF_P(arg);
-            zend_hash_next_index_insert(Z_ARR_P(ret), arg);
+        } else {
+            for (i = 0; i < first_extra_arg; i++){
+                arg = ZEND_CALL_VAR_NUM(object->ex, i);
+                if (Z_ISUNDEF_P(arg)) {
+                    continue;
+                }
+                Z_TRY_ADDREF_P(arg);
+                zend_hash_next_index_insert(Z_ARR_P(ret), arg);
+            }
+            //get extra params
+            extra_start = ZEND_CALL_VAR_NUM(object->ex, op_array->last_var + op_array->T);
+            for (i = 0; i < call_num_args - first_extra_arg; i++) {
+                Z_TRY_ADDREF_P(extra_start + i);
+                zend_hash_next_index_insert(Z_ARR_P(ret), extra_start + i);
+            }
         }
+        
         object->args = ret;
     }
     RETURN_ZVAL(object->args, 1, 0);

@@ -449,7 +449,7 @@ static void execute_pointcut(pointcut *pc, zval *arg, zval *retval) /*{{{*/
 }
 /*}}}*/
 
-static void execute_context(zend_execute_data *ex, zval *args) /*{{{*/
+static void execute_context(zend_execute_data *execute_data, zval *args) /*{{{*/
 {
     zend_class_entry *current_scope = NULL;
 
@@ -459,44 +459,62 @@ static void execute_context(zend_execute_data *ex, zval *args) /*{{{*/
 
     //overload arguments
     if (args != NULL) {
-        uint32_t i, max_num_args, num_args = 0;
-        zend_ulong args_index;
+        uint32_t i, first_extra_arg, call_num_args;
         zval *original_args_value;
         zval *overload_args_value;
+        zend_op_array *op_array = &EX(func)->op_array;
 
-        max_num_args = ex->func->common.num_args;
+        first_extra_arg = op_array->num_args;
+        call_num_args = zend_hash_num_elements(Z_ARR_P(args));//ZEND_CALL_NUM_ARGS(execute_data);
 
-        ZEND_HASH_FOREACH_NUM_KEY_VAL(Z_ARR_P(args), args_index, overload_args_value) {
-            if (args_index > max_num_args - 1) {
-                zval_ptr_dtor(overload_args_value);
-                continue;
+        if (call_num_args <= first_extra_arg) {
+            for (i = 0; i < call_num_args; i++){
+                original_args_value = ZEND_CALL_VAR_NUM(execute_data, i);
+                overload_args_value = zend_hash_index_find(Z_ARR_P(args), (zend_ulong)i);
+                
+                zval_ptr_dtor(original_args_value);
+                ZVAL_COPY(original_args_value, overload_args_value);
             }
-            original_args_value = ZEND_CALL_VAR_NUM(ex, args_index);
-            zval_ptr_dtor(original_args_value);
+        } else {
+            //1) overload common params
+            for (i = 0; i < first_extra_arg; i++){
+                original_args_value = ZEND_CALL_VAR_NUM(execute_data, i);
+                overload_args_value = zend_hash_index_find(Z_ARR_P(args), (zend_ulong)i);
 
-            ZVAL_COPY(original_args_value, overload_args_value);
-            num_args++;
-        } ZEND_HASH_FOREACH_END(); 
-        
-        ZEND_CALL_NUM_ARGS(ex) = num_args;
+                zval_ptr_dtor(original_args_value);
+                ZVAL_COPY(original_args_value, overload_args_value);
+            }
+
+            //2) overload extra params
+            if (op_array->fn_flags & ZEND_ACC_VARIADIC) {
+                for (i = 0; i < call_num_args - first_extra_arg; i++) {
+                    original_args_value = ZEND_CALL_VAR_NUM(execute_data, op_array->last_var + op_array->T + i);
+                    overload_args_value = zend_hash_index_find(Z_ARR_P(args), (zend_ulong)(i + first_extra_arg));
+
+                    zval_ptr_dtor(original_args_value);
+                    ZVAL_COPY(original_args_value, overload_args_value);
+                }
+            }
+        }
+        ZEND_CALL_NUM_ARGS(execute_data) = call_num_args;
     }
     
-    EG(current_execute_data) = ex;
+    EG(current_execute_data) = execute_data;
 
-    if (ex->func->common.type == ZEND_USER_FUNCTION) {
-        original_zend_execute_ex(ex);
-    } else if (ex->func->common.type == ZEND_INTERNAL_FUNCTION) {
+    if (execute_data->func->common.type == ZEND_USER_FUNCTION) {
+        original_zend_execute_ex(execute_data);
+    } else if (execute_data->func->common.type == ZEND_INTERNAL_FUNCTION) {
         //zval return_value;
         if (original_zend_execute_internal) {
-            original_zend_execute_internal(ex, ex->return_value);
+            original_zend_execute_internal(execute_data, execute_data->return_value);
         }else{
-            execute_internal(ex, ex->return_value);
+            execute_internal(execute_data, execute_data->return_value);
         }
     } else { /* ZEND_OVERLOADED_FUNCTION */
 #if PHP_MINOR_VERSION < 2
-        zend_do_fcall_overloaded(ex->func, ex, ex->return_value);
+        zend_do_fcall_overloaded(execute_data->func, execute_data, execute_data->return_value);
 #else
-        zend_do_fcall_overloaded(ex, ex->return_value);
+        zend_do_fcall_overloaded(execute_data, execute_data->return_value);
 #endif
     }
 }
