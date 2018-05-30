@@ -511,9 +511,10 @@ static void execute_context(zend_execute_data *execute_data, zval *args) /*{{{*/
             execute_internal(execute_data, execute_data->return_value);
         }
     } else { /* ZEND_OVERLOADED_FUNCTION */
-#if PHP_MINOR_VERSION < 2
+        //this will never happend,becase there's no hook for overload function
+#if PHP_MINOR_VERSION == 1
         zend_do_fcall_overloaded(execute_data->func, execute_data, execute_data->return_value);
-#else
+#elif PHP_MINOR_VERSION == 2
         zend_do_fcall_overloaded(execute_data, execute_data->return_value);
 #endif
     }
