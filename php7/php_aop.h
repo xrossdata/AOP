@@ -21,10 +21,26 @@
 #ifndef PHP_AOP_H
 #define PHP_AOP_H
 
+/* Kept for compatibility */
+#if PHP_VERSION_ID < 70100
+# define zval_dtor_func(f) zval_dtor_func_for_ptr(f)
+#endif
+#if PHP_VERSION_ID >= 70200
+# define GC_ZVAL_CHECK_POSSIBLE_ROOT(z) gc_check_possible_root(Z_COUNTED_P(z))
+#endif
+
+
+/* Backwards compatibility for GC API change in PHP 7.3 */
+#if PHP_VERSION_ID < 70300
+# define GC_ADDREF(p)            ++GC_REFCOUNT(p)
+# define GC_DELREF(p)            --GC_REFCOUNT(p)
+# define GC_SET_REFCOUNT(p, rc)  GC_REFCOUNT(p) = rc
+#endif
+
 extern zend_module_entry aop_module_entry;
 #define phpext_aop_ptr &aop_module_entry
 
-#define PHP_AOP_VERSION "1.0.0" /* Replace with version number for your extension */
+#define PHP_AOP_VERSION "1.0.0-xd" /* Replace with version number for your extension */
 
 #ifdef PHP_WIN32
 #   define PHP_AOP_API __declspec(dllexport)
@@ -72,17 +88,17 @@ typedef struct {
 
 	zend_string *class_name;
 	int class_jok;
-	
+
 	zend_string *method;
 	int method_jok;
-	
+
 	zend_string *selector;
 	int kind_of_advice;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fci_cache;
-	
-	pcre *re_method;
-	pcre *re_class;
+
+	pcre2_code *re_method;
+	pcre2_code *re_class;
 } pointcut;
 
 typedef struct {

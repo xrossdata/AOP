@@ -44,8 +44,8 @@ ZEND_END_ARG_INFO()
 
 void make_regexp_on_pointcut (pointcut *pc) /*{{{*/
 {
-	pcre_extra *pcre_extra = NULL;
-	int preg_options = 0;
+//	pcre_extra *pcre_extra = NULL;
+	uint32_t preg_options = 0;
 	zend_string *regexp;
 	zend_string *regexp_buffer = NULL;
 	zend_string *regexp_tmp = NULL;
@@ -54,7 +54,7 @@ void make_regexp_on_pointcut (pointcut *pc) /*{{{*/
 	pc->method_jok = (strchr(ZSTR_VAL(pc->method), '*') != NULL);
 
 	regexp_buffer = php_str_to_str(ZSTR_VAL(pc->method), ZSTR_LEN(pc->method), "**\\", 3, "[.#}", 4);
-	
+
 	regexp_tmp = regexp_buffer;
 	regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "**", 2, "[.#]", 4);
 	zend_string_release(regexp_tmp);
@@ -62,7 +62,7 @@ void make_regexp_on_pointcut (pointcut *pc) /*{{{*/
 	regexp_tmp = regexp_buffer;
 	regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "\\", 1, "\\\\", 2);
 	zend_string_release(regexp_tmp);
-	
+
 	regexp_tmp = regexp_buffer;
 	regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "*", 1, "[^\\\\]*", 6);
 	zend_string_release(regexp_tmp);
@@ -70,7 +70,7 @@ void make_regexp_on_pointcut (pointcut *pc) /*{{{*/
 	regexp_tmp = regexp_buffer;
 	regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "[.#]", 4, ".*", 2);
 	zend_string_release(regexp_tmp);
-	
+
 	regexp_tmp = regexp_buffer;
 	regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "[.#}", 4, "(.*\\\\)?", 7);
 	zend_string_release(regexp_tmp);
@@ -83,8 +83,8 @@ void make_regexp_on_pointcut (pointcut *pc) /*{{{*/
 	zend_string_release(regexp_buffer);
 
 	regexp = zend_string_init(tempregexp, strlen(tempregexp), 0);
-	pc->re_method = pcre_get_compiled_regex(regexp, &pcre_extra, &preg_options);
-	zend_string_release(regexp);	
+	pc->re_method = pcre_get_compiled_regex(regexp, &preg_options);
+	zend_string_release(regexp);
 
 	if (!pc->re_method) {
         php_error_docref(NULL, E_WARNING, "Invalid expression");
@@ -92,23 +92,23 @@ void make_regexp_on_pointcut (pointcut *pc) /*{{{*/
 
 	if (pc->class_name != NULL) {
 		regexp_buffer = php_str_to_str(ZSTR_VAL(pc->class_name), ZSTR_LEN(pc->class_name), "**\\", 3, "[.#}", 4);
-		
+
 		regexp_tmp = regexp_buffer;
 		regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "**", 2, "[.#]", 4);
 		zend_string_release(regexp_tmp);
-		
+
 		regexp_tmp = regexp_buffer;
 		regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "\\", 1, "\\\\", 2);
 		zend_string_release(regexp_tmp);
-		
+
 		regexp_tmp = regexp_buffer;
 		regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "*", 1, "[^\\\\]*", 6);
 		zend_string_release(regexp_tmp);
-		
+
 		regexp_tmp = regexp_buffer;
 		regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "[.#]", 4, ".*", 2);
 		zend_string_release(regexp_tmp);
-		
+
 		regexp_tmp = regexp_buffer;
 		regexp_buffer = php_str_to_str(ZSTR_VAL(regexp_tmp), ZSTR_LEN(regexp_buffer), "[.#}", 4, "(.*\\\\)?", 7);
 		zend_string_release(regexp_tmp);
@@ -121,7 +121,7 @@ void make_regexp_on_pointcut (pointcut *pc) /*{{{*/
 		zend_string_release(regexp_buffer);
 
 		regexp = zend_string_init(tempregexp, strlen(tempregexp), 0);
-		pc->re_class = pcre_get_compiled_regex(regexp, &pcre_extra, &preg_options);
+		pc->re_class = pcre_get_compiled_regex(regexp, &preg_options);
 		zend_string_release(regexp);
 
 		if (!pc->re_class) {
@@ -256,7 +256,7 @@ static void add_pointcut (zend_fcall_info fci, zend_fcall_info_cache fci_cache, 
 	}
 
 	make_regexp_on_pointcut(pc);
-	
+
 	//insert into hashTable:AOP_G(pointcuts)
 	ZVAL_PTR(&pointcut_val, pc);
 	zend_hash_next_index_insert(AOP_G(pointcuts_table), &pointcut_val);
@@ -276,7 +276,7 @@ PHP_INI_END()
 PHP_MINIT_FUNCTION(aop)
 {
 	REGISTER_INI_ENTRIES();
-	
+
 	//1.overload zend_execute_ex and zend_execute_internal
 	original_zend_execute_ex = zend_execute_ex;
 	zend_execute_ex = aop_execute_ex;
@@ -285,18 +285,18 @@ PHP_MINIT_FUNCTION(aop)
 	zend_execute_internal = aop_execute_internal;
 
 	//2.overload zend_std_read_property and zend_std_write_property
-	original_zend_std_read_property = std_object_handlers.read_property;
-	std_object_handlers.read_property = aop_read_property;
+//	original_zend_std_read_property = std_object_handlers.read_property;
+//	std_object_handlers.read_property = aop_read_property;
 
-	original_zend_std_write_property = std_object_handlers.write_property;
-	std_object_handlers.write_property = aop_write_property;
+//	original_zend_std_write_property = std_object_handlers.write_property;
+//	std_object_handlers.write_property = aop_write_property;
 
 	/*
 	 * To avoid zendvm inc/dec property value directly
 	 * When get_property_ptr_ptr return NULL, zendvm will use write_property to inc/dec property value
 	 */
-	original_zend_std_get_property_ptr_ptr = std_object_handlers.get_property_ptr_ptr;
-	std_object_handlers.get_property_ptr_ptr = aop_get_property_ptr_ptr;
+//	original_zend_std_get_property_ptr_ptr = std_object_handlers.get_property_ptr_ptr;
+//	std_object_handlers.get_property_ptr_ptr = aop_get_property_ptr_ptr;
 
 	register_class_AopJoinPoint();
 
@@ -346,7 +346,7 @@ PHP_RINIT_FUNCTION(aop)
 
 	AOP_G(object_cache_size) = 1024;
     AOP_G(object_cache) = ecalloc(1024, sizeof(object_cache *));
-    
+
 	AOP_G(property_value) = NULL;
 
 	AOP_G(lock_read_property) = 0;
@@ -354,10 +354,10 @@ PHP_RINIT_FUNCTION(aop)
 
 	//init AOP_G(pointcuts_table)
 	ALLOC_HASHTABLE(AOP_G(pointcuts_table));
-	zend_hash_init(AOP_G(pointcuts_table), 16, NULL, free_pointcut, 0);	
+	zend_hash_init(AOP_G(pointcuts_table), 16, NULL, free_pointcut, 0);
 
 	ALLOC_HASHTABLE(AOP_G(function_cache));
-	zend_hash_init(AOP_G(function_cache), 16, NULL, free_pointcut_cache, 0);	
+	zend_hash_init(AOP_G(function_cache), 16, NULL, free_pointcut_cache, 0);
     return SUCCESS;
 }
 /* }}} */
@@ -368,7 +368,7 @@ PHP_RSHUTDOWN_FUNCTION(aop)
 {
 	zend_array_destroy(AOP_G(pointcuts_table));
 	zend_array_destroy(AOP_G(function_cache));
-	
+
 	int i;
     for (i = 0; i < AOP_G(object_cache_size); i++) {
         if (AOP_G(object_cache)[i] != NULL) {
@@ -532,6 +532,13 @@ PHP_FUNCTION(aop_add_after_throwing)
 	add_pointcut(fci, fci_cache, selector, AOP_KIND_AFTER | AOP_KIND_CATCH);
 }
 /*}}}*/
+
+static const zend_module_dep aspekt_deps[] = { /* {{{ */
+	ZEND_MOD_REQUIRED("spl")
+	ZEND_MOD_REQUIRED("pcre")
+	ZEND_MOD_REQUIRED("standard")
+	ZEND_MOD_END
+};
 
 /* {{{ aop_functions[]
  */
